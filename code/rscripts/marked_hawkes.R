@@ -200,7 +200,7 @@ getTotalEvents<- function(history, bigT, K = 0.024, alpha = 2.016, beta = 0.5, m
       return(val)
     })) * K
     # calculating the final value
-    total.tweets = dim(history)[1] + a1 / (1 - n.star)
+    total.tweets = round(dim(history)[1] + a1 / (1 - n.star))
     return (c(total = total.tweets, nstar = n.star, a1 = a1))
   }
 }
