@@ -9,4 +9,4 @@ Steps covered are as follows:
 * Modeling a retweet cascade with marked Hawkes Process
 * Using the model to make predictions of final size
 
-All this is illustrated with a notebook file provided along with the rscripts.
+All this is illustrated with the notebook [file](https://github.com/s-mishra/featuredriven-hawkes/blob/master/code/marked_hawkes_point_process.ipynb) provided along with the rscripts.
