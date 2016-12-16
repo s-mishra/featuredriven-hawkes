@@ -26,8 +26,7 @@ kernelFct <- function(event, t, K = 0.024, alpha = 2.016, beta = 0.5, mmin = 1, 
 #' @aparma c the cutoff parameter in social kernel
 #' @param theta th powerlaw exponent of social kernel
 #' @param inclusive whether to consider event at time t for calculation 
-.kernelFct.PL<- function(event, t, K = 0.024, alpha = 2.016, beta = 0.5, mmin = 1, 
-                     c = 0.001, theta = 0.2, inclusive = T) {
+.kernelFct.PL <- function(event, t, K = 0.024, alpha = 2.016, beta = 0.5, mmin = 1, c = 0.001, theta = 0.2, inclusive = T) {
   # the event has 2 components: (magnitude_i, time_i)
   mat_event = matrix(unlist(event), ncol = 2, byrow = F)
   mi = mat_event[,1]
@@ -49,7 +48,9 @@ kernelFct <- function(event, t, K = 0.024, alpha = 2.016, beta = 0.5, mmin = 1, 
     val[t == ti] = 0
     val[mi == mmin] = 0
   }
-  return (val)
+  
+  
+  (val)
 }
 
 #' Triggering Kernel Function for Exponential
@@ -78,7 +79,7 @@ kernelFct <- function(event, t, K = 0.024, alpha = 2.016, beta = 0.5, mmin = 1, 
     val[mi == mmin] = 0
   }
   
-  return (val)
+  (val)
 }
 
 #' Conditional intensity function
@@ -109,6 +110,7 @@ CIF = function(x, history, ...) {
 #' @param filename - file to which save the CSV file with the simulation.
 generate_Hawkes_event_series <- function(K = 0.024, alpha = 2.016, beta = 0.5, mmin = 1, c = 0.001, theta = 0.2,
                                          M=10000, Tmax = 10, filename = NULL, history_init = NULL, kernel.type = 'PL') {
+  # cat(sprintf("--> The branching factor n=%.3f.\n", get_n(K = K, alpha = alpha, mmin = mmin, c = c, beta = beta, theta = theta)))
   saveInterval = 1000
   history <- NULL
   
@@ -151,14 +153,17 @@ generate_Hawkes_event_series <- function(K = 0.024, alpha = 2.016, beta = 0.5, m
   while(history[nrow(history), "time"] <= Tmax){
     # generate the time of the next event, based on the previous events
     t.lambda.max <- t
-    intensityMax <- CIF(x = t.lambda.max, history = history, K, alpha, beta, mmin, c, theta, kernel.type=kernel.type)
+    ## or the RAY distribution, the maximum value is at 1/sqrt(theta) starting from zero
+    if (kernel.type == "RAY")
+      t.lambda.max <- t + 1 / sqrt(theta)
+    intensityMax <- CIF(x = t.lambda.max, history = history, K, alpha, beta, mmin, c, theta, kernel.type = kernel.type)
     
     # I need this other function, because in the Poisson generation, the time index starts at 0
     # and I need to translate it at the end of my time.
     subsCIF <- function(x, ...) CIF(x + t, ...) 
     # the Tmax = NULL is a dirty trick to convince R to accept my additional parameters
     x <- rnhpoisson(Tmax = NULL, Nmax = 1, LambdaMax = intensityMax, FUN = subsCIF, 
-                    history, K, alpha, beta, mmin, c, theta, kernel.type=kernel.type) ## these parameters get transmitted using ...
+                    history, K, alpha, beta, mmin, c, theta, kernel.type = kernel.type) ## these parameters get transmitted using ...
     t = t + x
     
     # generate the influence of the next event, by sampling the powerlaw distribution of the #retweets
@@ -208,7 +213,7 @@ getBranchingFactor <- function(K = 0.024, alpha = 2.016, beta = 0.5, mmin = 1, c
 #' @aparma c the cutoff parameter in social kernel
 #' @param theta th powerlaw exponent of social kernel
 #' @return brnaching factor forthe social kernel with parameters passed
-.getBranchingFactor.PL<- function(K = 0.024, alpha = 2.016, beta = 0.5, mmin = 1, c = 0.001, theta = 0.2) {
+.getBranchingFactor.PL <- function(K = 0.024, alpha = 2.016, beta = 0.5, mmin = 1, c = 0.001, theta = 0.2) {
   
   if (beta >= (alpha - 1) ) {
     warning("The closed expression calculated by this function does NOT hold for beta >= alpha - 1")
@@ -335,7 +340,7 @@ integrateLambda <- function(kernel.type = 'PL', .numerical.integration = F, ...)
 
 #' A function to calculate the value of the integral of lambda for
 #' Social Kernel
-.integrateLambda.PL<- function(lower, upper, history, params, mmin = 1) {
+.integrateLambda.PL <- function(lower, upper, history, params, mmin = 1) {
   if (length(params) == 4)
     names(params) <- c("K", "beta", "c", "theta")
   params <- as.list(unlist(params))
@@ -371,9 +376,7 @@ integrateLambda <- function(kernel.type = 'PL', .numerical.integration = F, ...)
 #'  calculates the negative log-likelihood. 
 #'  This is given that the optim function minimizes a function. '
 #' Minimizing the -1 * log-likelihood amounts to maximizing the log-likehood. '
-neg.log.likelihood <- function(params, history,
-                               lowerBound = c(K = 0, beta = 0, c = 0, theta = 0), 
-                               upperBound = c(K = Inf, beta = Inf, c = Inf, theta = Inf),
+neg.log.likelihood <- function(params, history,# .cl = NULL, disable_gradient_params = NULL,
                                kernel.type = 'PL') { 
   
   if (length(params) == 4)
@@ -384,34 +387,26 @@ neg.log.likelihood <- function(params, history,
   maxValue <- .Machine$double.xmax - 1
   # if (sum(is.nan(unlist(params)), na.rm = T) > 0) return(maxValue)
   
-  ## first check bounds
-  # check if we got bounds
-  if (is.null(lowerBound)) lowerBound <- rep(-Inf, times = length(params))
-  if (is.null(upperBound)) upperBound <- rep(Inf, times = length(params))
-  
-  ## if all good, continue
   bigT <- max(history$time)
   
   ## get the formula of the log-likelihood * -1.
   ## that in the summation, we eliminated the first event, as there is no background rate in our lambda(t)
-  return(integrateLambda(lower = 0, upper = bigT, history = history, params = params, kernel.type=kernel.type) - 
-           sum(log(lambda(t = history$time[-1], history = history, params = params, kernel.type=kernel.type))) )
+  return(integrateLambda(lower = 0, upper = bigT, history = history, params = params, kernel.type = kernel.type) - 
+           sum(log(lambda(t = history$time[-1], history = history, params = params, kernel.type = kernel.type))) )
 }
 
 #' A dummy function to calculate the dervative in closed form.
 #' just used to pass kernel type
-closedGradient <- function(params, history, kernel.type = 'PL',
-                           lowerBound = c(K = 0, beta = 0, c = 0, theta = 0), 
-                           upperBound = c(K = Inf, beta = Inf, c = Inf, theta = Inf)) {
+#' A function to calculate the dervative in closed form.
+closedGradient <- function(params, history, kernel.type = 'PL') {
+  
   switch(kernel.type,
          PL = .closedGradient.PL(params, history),
          EXP = .closedGradient.EXP(params, history))
 }
 
 #' A function to calculate the dervative in closed form for our Power Law Social Kernel
-.closedGradient.PL <- function(params, history,
-                           lowerBound = c(K = 0, beta = 0, c = 0, theta = 0), 
-                           upperBound = c(K = Inf, beta = Inf, c = Inf, theta = Inf)){
+.closedGradient.PL <- function(params, history){
   if (length(params) == 4)
     names(params) <- c("K", "beta", "c", "theta")
   
@@ -574,9 +569,7 @@ closedGradient <- function(params, history, kernel.type = 'PL',
 }
 
 #' A dummy function to specify the constraint, just to pass kernel type
-constraint <- function(params, history, kernel.type = 'PL',
-                       lowerBound = c(K = 0, beta = 0, c = 0, theta = 0), 
-                       upperBound = c(K = Inf, beta = Inf, c = Inf, theta = Inf)) {
+constraint <- function(params, history, kernel.type = 'PL') {
   if (length(params) == 4)
     names(params) <- c("K", "beta", "c", "theta")
   
@@ -586,9 +579,7 @@ constraint <- function(params, history, kernel.type = 'PL',
 }
 
 #' A function to specify the constraint for Power Law Kernel
-.constraint.PL <- function(params, history,
-                       lowerBound = c(K = 0, beta = 0, c = 0, theta = 0), 
-                       upperBound = c(K = Inf, beta = Inf, c = Inf, theta = Inf)) {
+.constraint.PL <- function(params, history) {
   return( log(params[1]) + log(1.1016) - log(1.016 - params[2]) - 
             log(params[4]) - ( params[4] * log(params[3]) ) )
 }
@@ -598,9 +589,7 @@ constraint <- function(params, history, kernel.type = 'PL',
 }
 
 #' A dummy function to specify the Jacobian, just to pass kernel type.
-jacobian <- function(params, history, kernel.type = 'PL',
-                     lowerBound = c(K = 0, beta = 0, c = 0, theta = 0), 
-                     upperBound = c(K = Inf, beta = Inf, c = Inf, theta = Inf)) {
+jacobian <- function(params, history, kernel.type = 'PL') {
   if (length(params) == 4)
     names(params) <- c("K", "beta", "c", "theta")
   
@@ -610,9 +599,7 @@ jacobian <- function(params, history, kernel.type = 'PL',
 }
 
 #' A function to specify the Jacobian for Power Law Kernel
-.jacobian.PL <- function(params, history,
-                     lowerBound = c(K = 0, beta = 0, c = 0, theta = 0), 
-                     upperBound = c(K = Inf, beta = Inf, c = Inf, theta = Inf)) {
+.jacobian.PL <- function(params, history) {
   return ( c( 1 / params[1], 1 / (1.016 - params[2]), -params[4] / params[3],
               -(1 / params[4]) - log(params[3]) ) )
 }
@@ -653,11 +640,17 @@ fitParameters <- function(start, history, kernel.type='PL'){
   if (kernel.type == 'PL'){
     constraint_lb <- c(log(.Machine$double.eps))
     constraint_ub <- c(log(1 - .Machine$double.eps))
+    
+    lb <- c(K = 0, beta = 0, c = 0, theta = 0)
+    ub <- c(K = 1, beta = 1.016, c = Inf, theta = Inf)
   } else{
     constraint_lb <- c(.Machine$double.eps)
     # it is not kept with machine tolerance because of equality
     # being satisfied
     constraint_ub <- c(1.016 - 1e-06)
+    
+    lb = c(K = 0, beta = 0, c = 0, theta = 0)
+    ub = c(K = 1, beta = 1.016, c = 0, theta = Inf)
   }
   
   res <- ipoptr(x0 = c(K = start$K, beta = start$beta, 
@@ -667,16 +660,12 @@ fitParameters <- function(start, history, kernel.type='PL'){
                 eval_g= constraint,
                 eval_jac_g = jacobian,
                 eval_jac_g_structure = list(c(1,2,3,4)),
-                lb = c(K = 0, beta = 0, c = 0, theta = 0), 
-                ub = c(K = 1, beta = 1.016, c = Inf, theta = Inf),
+                lb = lb, 
+                ub = ub,
                 constraint_lb = constraint_lb, 
                 constraint_ub = constraint_ub,
                 opts = opts, # options for algorithm
-                history = history, kernel.type = kernel.type,
-                lowerBound = c(K = 0, beta = 0, c = 0, theta = 0),
-                ## these are parameters for the fn and gr functions
-                upperBound = c(K = 1, beta = 1.016, c = Inf, 
-                               theta = Inf)
+                history = history, kernel.type = kernel.type
   )
   return (res)
 }
